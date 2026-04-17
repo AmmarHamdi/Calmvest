@@ -3,7 +3,7 @@ kotlin = "1.9.25"
 spring-boot = "3.3.4"
 spring-dependency-management = "1.1.6"
 flyway = "10.18.0"
-postgresql = "42.7.4"
+postgresql = "42.7.7"
 
 [libraries]
 spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }
