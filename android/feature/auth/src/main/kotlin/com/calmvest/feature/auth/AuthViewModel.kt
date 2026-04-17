@@ -32,6 +32,10 @@ class AuthViewModel @Inject constructor() : ViewModel() {
             _signInState.update { AuthUiState.Error("Please fill in all fields") }
             return
         }
+        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+            _signInState.update { AuthUiState.Error("Please enter a valid email address") }
+            return
+        }
         viewModelScope.launch {
             _signInState.update { AuthUiState.Loading }
             // TODO: replace with real auth call
@@ -43,6 +47,10 @@ class AuthViewModel @Inject constructor() : ViewModel() {
     fun signUp(firstName: String, lastName: String, email: String, password: String) {
         if (firstName.isBlank() || lastName.isBlank() || email.isBlank() || password.isBlank()) {
             _signUpState.update { AuthUiState.Error("Please fill in all fields") }
+            return
+        }
+        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+            _signUpState.update { AuthUiState.Error("Please enter a valid email address") }
             return
         }
         if (password.length < 8) {
