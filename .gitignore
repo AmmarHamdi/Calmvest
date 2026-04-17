@@ -1,0 +1,48 @@
+# Gradle
+.gradle/
+build/
+out/
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# Android
+*.apk
+*.aab
+*.ap_
+*.dex
+local.properties
+.externalNativeBuild/
+.cxx/
+*.jks
+*.keystore
+captures/
+.idea/
+
+# IntelliJ / Android Studio
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# macOS
+.DS_Store
+
+# Backend build output
+backend/.gradle/
+backend/build/
+backend/*/build/
+
+# Android build output
+android/.gradle/
+android/build/
+android/*/build/
+android/*/*/build/
+
+# Environment
+*.env
+.env.*
+application-local.yml
+
+# Kotlin
+*.kotlin_module
