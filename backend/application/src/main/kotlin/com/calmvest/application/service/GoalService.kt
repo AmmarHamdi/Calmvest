@@ -10,6 +10,7 @@ import com.calmvest.domain.model.Money
 import com.calmvest.domain.model.UserId
 import com.calmvest.domain.repository.GoalRepository
 import com.calmvest.domain.repository.UserRepository
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -22,16 +23,21 @@ class GoalService(
     private val userRepository: UserRepository
 ) {
 
+    private val log = LoggerFactory.getLogger(GoalService::class.java)
+
     @Transactional
     fun createGoal(userId: UUID, request: CreateGoalRequest): GoalDto {
-        require(request.name.isNotBlank()) { "Goal name must not be blank" }
-        require(request.targetAmountEuros > java.math.BigDecimal.ZERO) {
-            "Target amount must be positive"
-        }
-
         val uid = UserId(userId)
         userRepository.findById(uid)
             .orElseThrow { NoSuchElementException("User not found: $userId") }
+
+        val targetDate = request.targetDate?.let {
+            runCatching { LocalDate.parse(it) }.getOrElse {
+                throw IllegalArgumentException("Invalid targetDate format. Expected ISO-8601 (yyyy-MM-dd): $it")
+            }
+        }
+
+        log.info("Creating goal '{}' for user {}", request.name, userId)
 
         val now = Instant.now()
         val goal = Goal(
@@ -41,7 +47,7 @@ class GoalService(
             description = request.description?.trim(),
             targetAmount = Money.ofEuros(request.targetAmountEuros),
             currentAmount = Money.zero(),
-            targetDate = request.targetDate?.let { LocalDate.parse(it) },
+            targetDate = targetDate,
             status = GoalStatus.ACTIVE,
             createdAt = now,
             updatedAt = now
@@ -58,12 +64,24 @@ class GoalService(
             .orElseThrow { NoSuchElementException("Goal not found: $goalId") }
         require(existing.userId == uid) { "Goal does not belong to user $userId" }
 
+        val targetDate = request.targetDate?.let {
+            runCatching { LocalDate.parse(it) }.getOrElse {
+                throw IllegalArgumentException("Invalid targetDate format. Expected ISO-8601 (yyyy-MM-dd): $it")
+            }
+        }
+
+        val updatedStatus = request.status?.let {
+            runCatching { GoalStatus.valueOf(it.uppercase()) }.getOrElse {
+                throw IllegalArgumentException("Invalid goal status: $it. Must be one of: ${GoalStatus.entries.joinToString()}")
+            }
+        }
+
         val updated = existing.copy(
             name = request.name?.trim() ?: existing.name,
             description = request.description?.trim() ?: existing.description,
             targetAmount = request.targetAmountEuros?.let { Money.ofEuros(it) } ?: existing.targetAmount,
-            targetDate = request.targetDate?.let { LocalDate.parse(it) } ?: existing.targetDate,
-            status = request.status?.let { GoalStatus.valueOf(it.uppercase()) } ?: existing.status,
+            targetDate = targetDate ?: existing.targetDate,
+            status = updatedStatus ?: existing.status,
             updatedAt = Instant.now()
         )
         return goalRepository.save(updated).toDto()

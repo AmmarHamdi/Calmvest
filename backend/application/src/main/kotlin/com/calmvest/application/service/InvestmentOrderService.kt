@@ -14,6 +14,7 @@ import com.calmvest.domain.port.CustodyProvider
 import com.calmvest.domain.repository.GoalRepository
 import com.calmvest.domain.repository.InvestmentOrderRepository
 import com.calmvest.domain.repository.UserRepository
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -27,26 +28,36 @@ class InvestmentOrderService(
     private val custodyProvider: CustodyProvider
 ) {
 
+    private val log = LoggerFactory.getLogger(InvestmentOrderService::class.java)
+
     @Transactional
     fun createOrder(userId: UUID, request: CreateInvestmentOrderRequest): InvestmentOrderDto {
-        require(request.idempotencyKey.isNotBlank()) { "Idempotency key must not be blank" }
-        require(request.amountEuros > java.math.BigDecimal.ZERO) { "Amount must be positive" }
-
         // Idempotency: return existing order if already created
         val existing = investmentOrderRepository.findByIdempotencyKey(request.idempotencyKey)
-        if (existing.isPresent) return existing.get().toDto()
+        if (existing.isPresent) {
+            log.debug("Investment order already exists for idempotency key {}", request.idempotencyKey)
+            return existing.get().toDto()
+        }
 
         val uid = UserId(userId)
         userRepository.findById(uid)
             .orElseThrow { NoSuchElementException("User not found: $userId") }
 
         val goalId = GoalId(request.goalId)
-        goalRepository.findById(goalId)
+        val goal = goalRepository.findById(goalId)
             .orElseThrow { NoSuchElementException("Goal not found: ${request.goalId}") }
+        require(goal.userId == uid) { "Goal does not belong to user $userId" }
 
-        val mode = InvestmentMode.valueOf(request.mode.uppercase())
+        val mode = try {
+            InvestmentMode.valueOf(request.mode.uppercase())
+        } catch (ex: IllegalArgumentException) {
+            throw IllegalArgumentException("Invalid investment mode: ${request.mode}. Must be one of: ${InvestmentMode.entries.joinToString()}")
+        }
+
         val amount = Money.ofEuros(request.amountEuros)
         val now = Instant.now()
+
+        log.info("Creating investment order for user {} amount {} mode {}", userId, amount, mode)
 
         val order = InvestmentOrder(
             id = InvestmentOrderId.generate(),
@@ -71,7 +82,10 @@ class InvestmentOrderService(
         val activeGoals = goalRepository.findByUserId(userId)
             .filter { it.status == com.calmvest.domain.model.GoalStatus.ACTIVE }
 
-        val targetGoal = activeGoals.firstOrNull() ?: return
+        val targetGoal = activeGoals.firstOrNull() ?: run {
+            log.debug("No active goals found for user {}, skipping auto-investment", userId)
+            return
+        }
 
         val idempotencyKey = "auto:${userId.value}:${UUID.randomUUID()}"
         if (investmentOrderRepository.existsByIdempotencyKey(idempotencyKey)) return
@@ -111,6 +125,7 @@ class InvestmentOrderService(
             )
             investmentOrderRepository.save(submitted).toDto()
         } catch (ex: Exception) {
+            log.error("Failed to submit investment order {} to custody provider", order.id, ex)
             val failed = order.copy(
                 status = OrderStatus.FAILED,
                 updatedAt = Instant.now()

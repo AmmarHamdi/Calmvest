@@ -11,6 +11,7 @@ import com.calmvest.domain.model.UserId
 import com.calmvest.domain.repository.ReserveEntryRepository
 import com.calmvest.domain.repository.RoundUpRuleRepository
 import com.calmvest.domain.repository.UserRepository
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -23,6 +24,8 @@ class RoundUpRuleService(
     private val userRepository: UserRepository
 ) {
 
+    private val log = LoggerFactory.getLogger(RoundUpRuleService::class.java)
+
     @Transactional(readOnly = true)
     fun getRoundUpRule(userId: UUID): RoundUpRuleDto {
         val uid = UserId(userId)
@@ -30,18 +33,11 @@ class RoundUpRuleService(
             .orElseThrow { NoSuchElementException("User not found: $userId") }
         return roundUpRuleRepository.findByUserId(uid)
             .map { it.toDto() }
-            .orElseGet { createDefaultRule(uid).toDto() }
+            .orElseGet { defaultRuleDto(uid) }
     }
 
     @Transactional
     fun upsertRoundUpRule(userId: UUID, request: UpdateRoundUpRuleRequest): RoundUpRuleDto {
-        require(request.monthlyCapEuros > java.math.BigDecimal.ZERO) {
-            "Monthly cap must be positive"
-        }
-        require(request.investmentThresholdEuros > java.math.BigDecimal.ZERO) {
-            "Investment threshold must be positive"
-        }
-
         val uid = UserId(userId)
         userRepository.findById(uid)
             .orElseThrow { NoSuchElementException("User not found: $userId") }
@@ -57,14 +53,19 @@ class RoundUpRuleService(
                 updatedAt = now
             )
         } else {
-            createDefaultRule(uid).copy(
+            RoundUpRule(
+                id = RoundUpRuleId.generate(),
+                userId = uid,
                 isEnabled = request.isEnabled,
                 monthlyCapAmount = Money.ofEuros(request.monthlyCapEuros),
+                currentMonthAccumulated = Money.zero(),
                 pausedUntil = request.pausedUntil,
                 investmentThreshold = Money.ofEuros(request.investmentThresholdEuros),
+                createdAt = now,
                 updatedAt = now
             )
         }
+        log.info("Upserting round-up rule for user {}: enabled={}", userId, rule.isEnabled)
         return roundUpRuleRepository.save(rule).toDto()
     }
 
@@ -92,16 +93,16 @@ class RoundUpRuleService(
         )
     }
 
-    private fun createDefaultRule(userId: UserId): RoundUpRule {
+    private fun defaultRuleDto(userId: UserId): RoundUpRuleDto {
         val now = Instant.now()
-        return RoundUpRule(
-            id = RoundUpRuleId.generate(),
-            userId = userId,
+        return RoundUpRuleDto(
+            id = UUID.randomUUID(),
+            userId = userId.value,
             isEnabled = false,
-            monthlyCapAmount = Money.ofEuros(java.math.BigDecimal("50.00")),
-            currentMonthAccumulated = Money.zero(),
+            monthlyCapEuros = java.math.BigDecimal("50.00"),
+            currentMonthAccumulatedEuros = java.math.BigDecimal.ZERO,
             pausedUntil = null,
-            investmentThreshold = Money.ofEuros(java.math.BigDecimal("10.00")),
+            investmentThresholdEuros = java.math.BigDecimal("10.00"),
             createdAt = now,
             updatedAt = now
         )

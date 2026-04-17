@@ -4,6 +4,7 @@ spring-boot = "3.3.4"
 spring-dependency-management = "1.1.6"
 flyway = "10.18.0"
 postgresql = "42.7.7"
+junit-jupiter = "5.11.0"
 
 [libraries]
 spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }
@@ -16,6 +17,7 @@ postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" 
 kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect" }
 jackson-module-kotlin = { module = "com.fasterxml.jackson.module:jackson-module-kotlin" }
 spring-boot-test = { module = "org.springframework.boot:spring-boot-starter-test" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit-jupiter" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
