@@ -1,0 +1,103 @@
+# ============================================================
+# Security Scanning Workflow
+# Runs on every push to main/develop and on a weekly schedule.
+# Also runs on PRs to catch issues before they land.
+#
+# Jobs:
+#   1. codeql      — Static analysis via GitHub CodeQL
+#   2. dependency-review — Block PRs introducing vulnerable deps
+# ============================================================
+name: Security
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Every Monday at 08:00 UTC — ensures long-lived branches are scanned.
+    - cron: "0 8 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 1. CodeQL Static Analysis ────────────────────────────────
+  codeql:
+    name: CodeQL Analysis (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write  # required to upload SARIF results
+    strategy:
+      fail-fast: false
+      matrix:
+      # CodeQL uses 'java-kotlin' to analyze Kotlin source that compiles to JVM bytecode.
+        language: [java-kotlin]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+
+      # Initialize CodeQL tools for the selected language.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Use the default security-and-quality query suite.
+          queries: security-and-quality
+
+      # Build both modules so CodeQL can trace the full call graph.
+      - name: Setup Gradle (backend)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Build backend for CodeQL
+        working-directory: backend
+        run: ./gradlew classes testClasses --no-daemon
+        continue-on-error: true
+
+      # Android build is best-effort; missing wrapper will not fail the scan.
+      - name: Build Android for CodeQL
+        working-directory: android
+        run: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          if [ -f gradlew ]; then
+            ./gradlew assembleDebug --no-daemon
+          fi
+        continue-on-error: true
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # ── 2. Dependency Review (PRs only) ──────────────────────────
+  # Blocks merging if a PR introduces a dependency with a known CVE.
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write  # allows posting a comment with findings
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          # Fail on HIGH or CRITICAL severity CVEs.
+          fail-on-severity: high
+          # Post a summary comment on the PR.
+          comment-summary-in-pr: always

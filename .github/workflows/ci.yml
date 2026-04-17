@@ -1,0 +1,51 @@
+# ============================================================
+# Main CI Workflow
+# Triggered on every pull request and on pushes to main/develop.
+# Orchestrates backend and Android pipelines via reusable workflows.
+# ============================================================
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+# Cancel in-progress runs for the same branch/PR to save runner minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege: read-only by default; individual jobs elevate as needed.
+permissions:
+  contents: read
+
+jobs:
+  # ── Backend ─────────────────────────────────────────────────
+  backend:
+    name: Backend CI
+    uses: ./.github/workflows/backend-pipeline.yml
+    with:
+      java-version: "17"
+      # Only archive the JAR on pushes to main/develop (not every PR).
+      publish-artifacts: ${{ github.event_name == 'push' }}
+      # Build and push Docker image only on pushes to main or release branches.
+      docker-push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')) }}
+    secrets: inherit
+    permissions:
+      contents: read
+      checks: write
+      packages: write  # required for GHCR push
+
+  # ── Android ─────────────────────────────────────────────────
+  android:
+    name: Android CI
+    uses: ./.github/workflows/android-pipeline.yml
+    with:
+      # Always build debug on CI; release is handled by release.yml.
+      build-variant: debug
+      publish-artifacts: ${{ github.event_name == 'push' }}
+    secrets: inherit
+    permissions:
+      contents: read
+      checks: write
