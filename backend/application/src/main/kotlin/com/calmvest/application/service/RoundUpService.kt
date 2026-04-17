@@ -75,7 +75,7 @@ class RoundUpService(
         if (!rule.isEnabled) return
 
         val now = Instant.now()
-        if (rule.pausedUntil != null && rule.pausedUntil!!.isAfter(now)) return
+        if (rule.pausedUntil?.isAfter(now) == true) return
 
         val effectiveRoundUp = if (
             rule.currentMonthAccumulated + transaction.roundUpAmount > rule.monthlyCapAmount

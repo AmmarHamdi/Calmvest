@@ -73,7 +73,7 @@ class InvestmentOrderService(
 
         val targetGoal = activeGoals.firstOrNull() ?: return
 
-        val idempotencyKey = "auto:${userId.value}:${Instant.now().toEpochMilli()}"
+        val idempotencyKey = "auto:${userId.value}:${UUID.randomUUID()}"
         if (investmentOrderRepository.existsByIdempotencyKey(idempotencyKey)) return
 
         val now = Instant.now()
