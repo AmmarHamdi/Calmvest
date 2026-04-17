@@ -1,6 +1,9 @@
 package com.calmvest.android.navigation
 
 object Routes {
+    const val SPLASH = "splash"
+    const val SIGN_IN = "sign_in"
+    const val SIGN_UP = "sign_up"
     const val ONBOARDING = "onboarding"
     const val GOAL_SETUP = "goal_setup"
     const val INVESTMENT_MODE = "investment_mode"
