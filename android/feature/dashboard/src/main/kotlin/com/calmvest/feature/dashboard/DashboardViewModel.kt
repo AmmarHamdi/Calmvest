@@ -10,6 +10,7 @@ import com.calmvest.core.domain.usecase.GetGoalsUseCase
 import com.calmvest.core.domain.usecase.GetReserveSummaryUseCase
 import com.calmvest.core.domain.usecase.GetTransactionsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,43 +48,33 @@ class DashboardViewModel @Inject constructor(
     fun loadDashboard() {
         _uiState.update { DashboardUiState.Loading }
         viewModelScope.launch {
-            var goals: List<Goal> = emptyList()
-            var reserveSummary: ReserveSummary? = null
-            var recentTransactions: List<Transaction> = emptyList()
-            var errorMessage: String? = null
-
-            getGoalsUseCase(userId).collect { result ->
-                result.fold(
-                    onSuccess = { goals = it },
-                    onFailure = { errorMessage = it.message }
-                )
+            val goalsDeferred = async {
+                var result: List<Goal> = emptyList()
+                getGoalsUseCase(userId).collect { r -> r.onSuccess { result = it } }
+                result
+            }
+            val reserveDeferred = async {
+                var result: ReserveSummary? = null
+                getReserveSummaryUseCase(userId).collect { r -> r.onSuccess { result = it } }
+                result
+            }
+            val transactionsDeferred = async {
+                var result: List<Transaction> = emptyList()
+                getTransactionsUseCase(userId).collect { r -> r.onSuccess { result = it.take(5) } }
+                result
             }
 
-            getReserveSummaryUseCase(userId).collect { result ->
-                result.fold(
-                    onSuccess = { reserveSummary = it },
-                    onFailure = { if (errorMessage == null) errorMessage = it.message }
-                )
-            }
+            val goals = goalsDeferred.await()
+            val reserveSummary = reserveDeferred.await()
+            val recentTransactions = transactionsDeferred.await()
 
-            getTransactionsUseCase(userId).collect { result ->
-                result.fold(
-                    onSuccess = { recentTransactions = it.take(5) },
-                    onFailure = { if (errorMessage == null) errorMessage = it.message }
+            _uiState.update {
+                DashboardUiState.Success(
+                    user = null,
+                    reserveSummary = reserveSummary,
+                    goals = goals,
+                    recentTransactions = recentTransactions
                 )
-            }
-
-            if (errorMessage != null && goals.isEmpty() && reserveSummary == null) {
-                _uiState.update { DashboardUiState.Error(errorMessage ?: "Unknown error") }
-            } else {
-                _uiState.update {
-                    DashboardUiState.Success(
-                        user = null,
-                        reserveSummary = reserveSummary,
-                        goals = goals,
-                        recentTransactions = recentTransactions
-                    )
-                }
             }
         }
     }
