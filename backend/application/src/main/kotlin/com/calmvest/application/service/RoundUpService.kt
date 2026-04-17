@@ -14,6 +14,7 @@ import com.calmvest.domain.repository.ReserveEntryRepository
 import com.calmvest.domain.repository.RoundUpRuleRepository
 import com.calmvest.domain.repository.TransactionRepository
 import com.calmvest.domain.repository.UserRepository
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -29,14 +30,16 @@ class RoundUpService(
     private val investmentOrderService: InvestmentOrderService
 ) {
 
+    private val log = LoggerFactory.getLogger(RoundUpService::class.java)
+
     @Transactional
     fun importTransaction(userId: UUID, request: ImportTransactionRequest): TransactionDto {
-        require(request.idempotencyKey.isNotBlank()) { "Idempotency key must not be blank" }
-        require(request.amountEuros > java.math.BigDecimal.ZERO) { "Amount must be positive" }
-
         // Idempotency check: return existing result if already processed
         val existing = transactionRepository.findByIdempotencyKey(request.idempotencyKey)
-        if (existing.isPresent) return existing.get().toDto()
+        if (existing.isPresent) {
+            log.debug("Transaction already imported for idempotency key {}", request.idempotencyKey)
+            return existing.get().toDto()
+        }
 
         val uid = UserId(userId)
         userRepository.findById(uid)
@@ -48,6 +51,8 @@ class RoundUpService(
 
         val amount = Money.ofEuros(request.amountEuros)
         val roundUpAmount = amount.roundUpToNextEuro()
+
+        log.debug("Importing transaction for user {} amount {} roundUp {}", userId, amount, roundUpAmount)
 
         val transaction = Transaction(
             id = TransactionId.generate(),
@@ -106,8 +111,11 @@ class RoundUpService(
         )
         roundUpRuleRepository.save(updatedRule)
 
+        log.info("Reserved {} for user {}", effectiveRoundUp, userId)
+
         val totalReserve = reserveEntryRepository.sumAmountByUserId(userId)
         if (totalReserve >= rule.investmentThreshold) {
+            log.info("Reserve {} reached threshold {} for user {}, triggering investment", totalReserve, rule.investmentThreshold, userId)
             investmentOrderService.triggerAutomaticInvestment(userId, totalReserve, rule)
         }
     }

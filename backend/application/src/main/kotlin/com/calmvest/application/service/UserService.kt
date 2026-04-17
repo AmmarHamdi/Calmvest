@@ -6,6 +6,7 @@ import com.calmvest.domain.model.KycStatus
 import com.calmvest.domain.model.User
 import com.calmvest.domain.model.UserId
 import com.calmvest.domain.repository.UserRepository
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -16,18 +17,21 @@ class UserService(
     private val userRepository: UserRepository
 ) {
 
+    private val log = LoggerFactory.getLogger(UserService::class.java)
+
     @Transactional
     fun createUser(request: CreateUserRequest): UserDto {
-        require(request.email.isNotBlank()) { "Email must not be blank" }
-        require(request.name.isNotBlank()) { "Name must not be blank" }
-        require(!userRepository.existsByEmail(request.email)) {
-            "User with email ${request.email} already exists"
+        val email = request.email.lowercase().trim()
+        require(!userRepository.existsByEmail(email)) {
+            "User with email $email already exists"
         }
+
+        log.info("Creating user with email {}", email)
 
         val now = Instant.now()
         val user = User(
             id = UserId.generate(),
-            email = request.email.lowercase().trim(),
+            email = email,
             name = request.name.trim(),
             kycStatus = KycStatus.PENDING,
             createdAt = now,
