@@ -1,0 +1,195 @@
+# ============================================================
+# Deployment Workflow (Skeleton)
+# Triggered automatically after CI passes on main, or manually
+# via workflow_dispatch with environment selection.
+#
+# Environments:
+#   dev      — auto-deploy on every push to main (no approval)
+#   staging  — auto-promote from dev; requires manual approval
+#   prod     — requires manual approval; only from main or version tags
+#
+# IMPORTANT: Before enabling this workflow, configure the following
+# in your GitHub repository settings:
+#   Settings → Environments → dev / staging / prod
+#   Add protection rules (required reviewers) for staging and prod.
+#
+# Deployment targets (replace the placeholder steps with your
+# actual deployment commands):
+#   - Kubernetes:  kubectl set image / helm upgrade
+#   - AWS ECS:     aws ecs update-service
+#   - GCP Cloud Run: gcloud run deploy
+#   - Azure ACI:   az container restart
+# ============================================================
+name: Deploy
+
+on:
+  # Auto-deploy when CI succeeds on main.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+  # Also trigger on version tags (for production releases).
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+  # Allow manual deploys with environment selection.
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [dev, staging, prod]
+        required: true
+      image-tag:
+        description: Docker image tag to deploy (e.g. sha-abc1234 or v1.2.3)
+        type: string
+        required: true
+
+concurrency:
+  # Prevent simultaneous deploys to the same environment.
+  group: deploy-${{ github.event.inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Resolve deployment context ───────────────────────────────
+  # Determines image tag and target environment from the trigger.
+  context:
+    name: Resolve Deploy Context
+    runs-on: ubuntu-latest
+    # Only proceed if the triggering CI workflow succeeded.
+    if: >
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    outputs:
+      image-tag: ${{ steps.resolve.outputs.image-tag }}
+      environment: ${{ steps.resolve.outputs.environment }}
+    steps:
+      - name: Resolve image tag and environment
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "image-tag=${{ github.event.inputs.image-tag }}" >> "$GITHUB_OUTPUT"
+            echo "environment=${{ github.event.inputs.environment }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            # Tag push → always target production
+            TAG="${{ github.ref_name }}"
+            echo "image-tag=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "environment=prod" >> "$GITHUB_OUTPUT"
+          else
+            # Triggered by CI on main → deploy to dev
+            echo "image-tag=sha-$(echo '${{ github.event.workflow_run.head_sha }}' | cut -c1-7)" >> "$GITHUB_OUTPUT"
+            echo "environment=dev" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Deploy to Dev ────────────────────────────────────────────
+  deploy-dev:
+    name: Deploy to Dev
+    needs: context
+    if: needs.context.outputs.environment == 'dev'
+    runs-on: ubuntu-latest
+    environment:
+      name: dev
+      url: https://dev.calmvest.example.com   # ← replace with real URL
+    permissions:
+      contents: read
+      id-token: write  # required for OIDC-based cloud auth
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Example: Kubernetes deployment ────────────────────────
+      # Replace the block below with your actual deployment tooling.
+      - name: Deploy backend to dev
+        env:
+          IMAGE_TAG: ${{ needs.context.outputs.image-tag }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/calmvest-backend
+        run: |
+          echo "=== Deploying ${IMAGE}:${IMAGE_TAG} to dev ==="
+          # kubectl set image deployment/calmvest-backend \
+          #   calmvest-backend=${IMAGE}:${IMAGE_TAG} \
+          #   --namespace=calmvest-dev
+          # kubectl rollout status deployment/calmvest-backend \
+          #   --namespace=calmvest-dev --timeout=120s
+          echo "TODO: add real deploy command"
+
+      - name: Smoke test dev
+        run: |
+          echo "TODO: run smoke tests against https://dev.calmvest.example.com"
+          # curl --fail https://dev.calmvest.example.com/actuator/health
+
+  # ── Deploy to Staging ────────────────────────────────────────
+  deploy-staging:
+    name: Deploy to Staging
+    needs: [context, deploy-dev]
+    if: >
+      always() &&
+      (needs.context.outputs.environment == 'staging' ||
+       needs.deploy-dev.result == 'success')
+    runs-on: ubuntu-latest
+    environment:
+      name: staging           # ← configure required reviewers in repo settings
+      url: https://staging.calmvest.example.com
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy backend to staging
+        env:
+          IMAGE_TAG: ${{ needs.context.outputs.image-tag }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/calmvest-backend
+        run: |
+          echo "=== Deploying ${IMAGE}:${IMAGE_TAG} to staging ==="
+          # kubectl set image deployment/calmvest-backend \
+          #   calmvest-backend=${IMAGE}:${IMAGE_TAG} \
+          #   --namespace=calmvest-staging
+          echo "TODO: add real deploy command"
+
+      - name: Smoke test staging
+        run: |
+          echo "TODO: run smoke tests against https://staging.calmvest.example.com"
+
+  # ── Deploy to Production ─────────────────────────────────────
+  deploy-prod:
+    name: Deploy to Production
+    needs: [context, deploy-staging]
+    if: >
+      always() &&
+      (needs.context.outputs.environment == 'prod' ||
+       needs.deploy-staging.result == 'success') &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    environment:
+      name: prod              # ← configure required reviewers in repo settings
+      url: https://calmvest.example.com
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy backend to production
+        env:
+          IMAGE_TAG: ${{ needs.context.outputs.image-tag }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/calmvest-backend
+        run: |
+          echo "=== Deploying ${IMAGE}:${IMAGE_TAG} to production ==="
+          # kubectl set image deployment/calmvest-backend \
+          #   calmvest-backend=${IMAGE}:${IMAGE_TAG} \
+          #   --namespace=calmvest-prod
+          echo "TODO: add real deploy command"
+
+      - name: Smoke test production
+        run: |
+          echo "TODO: run smoke tests against https://calmvest.example.com"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "TODO: send alert (Slack, PagerDuty, etc.) on production deploy failure"
+          # Example: curl -X POST ${{ secrets.SLACK_WEBHOOK }} -d '{"text":"Production deploy failed!"}'

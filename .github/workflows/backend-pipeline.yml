@@ -1,0 +1,185 @@
+# ============================================================
+# Reusable Backend Pipeline
+# Called by ci.yml, release.yml, and deploy.yml.
+# Validates, tests, builds the Spring Boot JAR, and optionally
+# builds + pushes a Docker image to GitHub Container Registry.
+# ============================================================
+name: Backend Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        description: JDK version to use
+        type: string
+        default: "17"
+      publish-artifacts:
+        description: Upload the built JAR as a workflow artifact
+        type: boolean
+        default: false
+      docker-push:
+        description: Build and push Docker image to GHCR
+        type: boolean
+        default: false
+    outputs:
+      artifact-name:
+        description: Name of the uploaded JAR artifact
+        value: ${{ jobs.build.outputs.artifact-name }}
+      image-tags:
+        description: Docker image tags produced by this run
+        value: ${{ jobs.docker.outputs.image-tags }}
+
+# Jobs inside a reusable workflow inherit the caller's permissions.
+permissions:
+  contents: read
+
+jobs:
+  # ── 1. Validate Gradle Wrapper ───────────────────────────────
+  validate-wrapper:
+    name: Validate Gradle Wrapper
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Verifies that gradlew has not been tampered with.
+      - name: Validate Gradle wrapper checksum
+        uses: gradle/actions/wrapper-validation@v4
+
+  # ── 2. Unit Tests ────────────────────────────────────────────
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: validate-wrapper
+    permissions:
+      contents: read
+      checks: write      # needed to publish test results
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ inputs.java-version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ inputs.java-version }}
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # Write cache only on main/develop to avoid cache pollution from feature branches.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop' }}
+
+      - name: Run unit tests
+        working-directory: backend
+        run: ./gradlew test --no-daemon --stacktrace
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v1
+        if: always()   # always publish, even on test failures
+        with:
+          name: Backend Unit Tests
+          path: "backend/**/build/test-results/**/*.xml"
+          reporter: java-junit
+          fail-on-error: false
+
+      # Upload full HTML reports only when tests fail (saves storage).
+      - name: Upload test reports on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: backend-test-reports-${{ github.run_id }}
+          path: backend/**/build/reports/tests/
+          retention-days: 7
+
+  # ── 3. Build Spring Boot JAR ─────────────────────────────────
+  build:
+    name: Build JAR
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      artifact-name: calmvest-backend-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ inputs.java-version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ inputs.java-version }}
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop' }}
+
+      - name: Build Spring Boot JAR
+        working-directory: backend
+        run: ./gradlew :app:bootJar --no-daemon
+
+      - name: Upload JAR artifact
+        if: inputs.publish-artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: calmvest-backend-${{ github.sha }}
+          path: backend/app/build/libs/*.jar
+          # Keep build artifacts for 30 days on main; 7 days on feature branches.
+          retention-days: ${{ github.ref == 'refs/heads/main' && 30 || 7 }}
+
+  # ── 4. Docker Build & Push ───────────────────────────────────
+  docker:
+    name: Docker Build & Push
+    runs-on: ubuntu-latest
+    needs: build
+    if: inputs.docker-push
+    permissions:
+      contents: read
+      packages: write  # required to push to ghcr.io
+    outputs:
+      image-tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Download the pre-built JAR so Docker does not re-run Gradle.
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: calmvest-backend-${{ github.sha }}
+          path: backend/app/build/libs/
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata (tags + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/calmvest-backend
+          tags: |
+            # Short commit SHA: sha-abc1234
+            type=sha,prefix=sha-
+            # Branch name: main, develop, release-1.2
+            type=ref,event=branch
+            # Semver tags: v1.2.3 → 1.2.3, 1.2, 1, latest
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            # 'latest' only for pushes to main
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Use GitHub Actions cache to speed up layer rebuilds.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false  # disable SLSA provenance attestation for now
