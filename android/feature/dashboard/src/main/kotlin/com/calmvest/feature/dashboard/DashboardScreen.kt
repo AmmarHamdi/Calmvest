@@ -17,11 +17,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -35,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.calmvest.core.domain.model.Goal
+import com.calmvest.core.domain.model.Money
+import com.calmvest.core.domain.model.Portfolio
 import com.calmvest.core.domain.model.ReserveSummary
 import com.calmvest.core.domain.model.Transaction
 import com.calmvest.core.ui.components.CalmCard
@@ -108,6 +113,62 @@ private fun DashboardContent(
             }
         }
 
+        // Quick stats row: Amount Invested + Auto-invest status
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                state.portfolio?.let { portfolio ->
+                    StatCard(
+                        label = "Amount invested",
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        MoneyText(
+                            money = portfolio.totalInvested,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = portfolio.modeEmoji + " " + portfolio.modeLabel,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                StatCard(
+                    label = "Auto-invest",
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (state.autoInvestEnabled)
+                                Icons.Filled.AutoAwesome else Icons.Filled.PauseCircle,
+                            contentDescription = null,
+                            tint = if (state.autoInvestEnabled) CalmGreen
+                                   else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (state.autoInvestEnabled) "Active" else "Paused",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (state.autoInvestEnabled) CalmGreen
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    state.lastRoundUp?.let { lastRoundUp ->
+                        Text(
+                            text = "Last: ${lastRoundUp.formatEuros()}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
         // Goals
         if (state.goals.isNotEmpty()) {
             item {
@@ -137,6 +198,30 @@ private fun DashboardContent(
         }
 
         item { Spacer(modifier = Modifier.height(16.dp)) }
+    }
+}
+
+@Composable
+private fun StatCard(
+    label: String,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            content()
+        }
     }
 }
 

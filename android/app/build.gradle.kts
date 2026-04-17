@@ -65,6 +65,7 @@ dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:data"))
     implementation(project(":core:ui"))
+    implementation(project(":feature:auth"))
     implementation(project(":feature:onboarding"))
     implementation(project(":feature:dashboard"))
     implementation(project(":feature:goals"))

@@ -24,6 +24,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.calmvest.android.SplashScreen
+import com.calmvest.feature.auth.SignInScreen
+import com.calmvest.feature.auth.SignUpScreen
 import com.calmvest.feature.dashboard.DashboardScreen
 import com.calmvest.feature.goals.GoalDetailScreen
 import com.calmvest.feature.goals.GoalsScreen
@@ -96,9 +99,38 @@ private fun AppNavHost(
 ) {
     NavHost(
         navController = navController,
-        startDestination = Routes.ONBOARDING,
+        startDestination = Routes.SPLASH,
         modifier = modifier
     ) {
+        composable(Routes.SPLASH) {
+            SplashScreen(
+                onSplashComplete = {
+                    navController.navigate(Routes.SIGN_IN) {
+                        popUpTo(Routes.SPLASH) { inclusive = true }
+                    }
+                }
+            )
+        }
+        composable(Routes.SIGN_IN) {
+            SignInScreen(
+                onSignInSuccess = {
+                    navController.navigate(Routes.DASHBOARD) {
+                        popUpTo(Routes.SIGN_IN) { inclusive = true }
+                    }
+                },
+                onNavigateToSignUp = { navController.navigate(Routes.SIGN_UP) }
+            )
+        }
+        composable(Routes.SIGN_UP) {
+            SignUpScreen(
+                onSignUpSuccess = {
+                    navController.navigate(Routes.ONBOARDING) {
+                        popUpTo(Routes.SIGN_IN) { inclusive = true }
+                    }
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
         composable(Routes.ONBOARDING) {
             OnboardingScreen(
                 onGetStarted = { navController.navigate(Routes.GOAL_SETUP) }
