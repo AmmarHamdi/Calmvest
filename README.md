@@ -14,8 +14,9 @@ Calmvest helps users who don't understand trading to build savings and investmen
 
 ```
 calmvest/
-├── android/        # Kotlin + Jetpack Compose Android app
-└── backend/        # Kotlin + Spring Boot REST API
+├── android-app/        # Kotlin + Jetpack Compose Android app
+├── backend/            # Kotlin + Spring Boot REST API
+└── docs/               # Project-level documentation
 ```
 
 ### Backend — Kotlin + Spring Boot (Modular Monolith)
@@ -40,7 +41,7 @@ backend/
 ### Android — Kotlin + Jetpack Compose (Clean Architecture)
 
 ```
-android/
+android-app/
 ├── app/                      # Application class, MainActivity, Navigation
 ├── core/
 │   ├── domain/               # Domain models, repository interfaces, use cases
@@ -176,7 +177,7 @@ export DATABASE_PASSWORD=calmvest
 - Android SDK 34
 
 ```bash
-cd android
+cd android-app
 ./gradlew assembleDebug
 ```
 
