@@ -69,7 +69,7 @@ jobs:
 
       # Android build is best-effort; missing wrapper will not fail the scan.
       - name: Build Android for CodeQL
-        working-directory: android
+        working-directory: android-app
         run: |
           echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
           if [ -f gradlew ]; then

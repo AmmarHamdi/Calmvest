@@ -3,9 +3,9 @@
 # Called by ci.yml (debug builds on PRs) and release.yml
 # (release bundles on version tags).
 #
-# ASSUMPTION: The android/ directory must contain a committed
+# ASSUMPTION: The android-app/ directory must contain a committed
 # Gradle wrapper (gradlew + gradle/wrapper/). Generate it with:
-#   cd android && gradle wrapper --gradle-version=8.7
+#   cd android-app && gradle wrapper --gradle-version=8.7
 # then commit gradlew, gradlew.bat, gradle/wrapper/gradle-wrapper.jar,
 # and gradle/wrapper/gradle-wrapper.properties.
 # ============================================================
@@ -75,16 +75,16 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: wrapper   # uses android/gradle/wrapper/gradle-wrapper.properties
-          build-root-directory: android
+          gradle-version: wrapper   # uses android-app/gradle/wrapper/gradle-wrapper.properties
+          build-root-directory: android-app
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop' }}
 
       # GitHub-hosted runners expose ANDROID_SDK_ROOT; create local.properties so Gradle can find it.
       - name: Create local.properties
-        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > android-app/local.properties
 
       - name: Run Android unit tests
-        working-directory: android
+        working-directory: android-app
         run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
 
       - name: Publish test results
@@ -92,7 +92,7 @@ jobs:
         if: always()
         with:
           name: Android Unit Tests
-          path: "android/**/build/test-results/**/*.xml"
+          path: "android-app/**/build/test-results/**/*.xml"
           reporter: java-junit
           fail-on-error: false
 
@@ -101,7 +101,7 @@ jobs:
         if: failure()
         with:
           name: android-test-reports-${{ github.run_id }}
-          path: android/**/build/reports/tests/
+          path: android-app/**/build/reports/tests/
           retention-days: 7
 
   # ── 3. Build APK / AAB ──────────────────────────────────────
@@ -124,11 +124,11 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: wrapper
-          build-root-directory: android
+          build-root-directory: android-app
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop' }}
 
       - name: Create local.properties
-        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > android-app/local.properties
 
       # ── Signing setup (release only) ──────────────────────────
       # The keystore is stored as a base64-encoded GitHub Secret.
@@ -136,12 +136,12 @@ jobs:
       - name: Decode keystore
         if: inputs.build-variant == 'release'
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/keystore.jks
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android-app/app/keystore.jks
 
       - name: Write keystore.properties
         if: inputs.build-variant == 'release'
         run: |
-          cat > android/keystore.properties <<EOF
+          cat > android-app/keystore.properties <<EOF
           storeFile=app/keystore.jks
           storePassword=${{ secrets.KEYSTORE_PASSWORD }}
           keyAlias=${{ secrets.KEY_ALIAS }}
@@ -151,21 +151,21 @@ jobs:
       # ── Build ────────────────────────────────────────────────
       - name: Assemble debug APK
         if: inputs.build-variant == 'debug'
-        working-directory: android
+        working-directory: android-app
         run: ./gradlew assembleDebug --no-daemon
 
       # Release builds produce an AAB (preferred for Play Store upload).
       - name: Bundle release AAB
         if: inputs.build-variant == 'release'
-        working-directory: android
+        working-directory: android-app
         run: ./gradlew bundleRelease --no-daemon
 
       # ── Clean up secrets from the runner filesystem ──────────
       - name: Remove keystore files
         if: always() && inputs.build-variant == 'release'
         run: |
-          rm -f android/app/keystore.jks
-          rm -f android/keystore.properties
+          rm -f android-app/app/keystore.jks
+          rm -f android-app/keystore.properties
 
       # ── Upload artifact ──────────────────────────────────────
       - name: Upload debug APK
@@ -173,7 +173,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: calmvest-android-debug-${{ github.sha }}
-          path: android/app/build/outputs/apk/debug/*.apk
+          path: android-app/app/build/outputs/apk/debug/*.apk
           retention-days: 7
 
       - name: Upload release AAB
@@ -181,5 +181,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: calmvest-android-release-${{ github.sha }}
-          path: android/app/build/outputs/bundle/release/*.aab
+          path: android-app/app/build/outputs/bundle/release/*.aab
           retention-days: 30
